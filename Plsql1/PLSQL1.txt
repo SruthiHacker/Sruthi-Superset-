@@ -1,0 +1,134 @@
+
+CREATE SCHEMA project1;
+USE project1;
+
+
+CREATE TABLE Cust (
+    CustomerID INT PRIMARY KEY AUTO_INCREMENT,
+    Name VARCHAR(100),
+    Age INT,
+    Balance DECIMAL(10,2),
+    IsVIP BOOLEAN DEFAULT FALSE
+);
+
+
+CREATE TABLE L (
+    LoanID INT PRIMARY KEY AUTO_INCREMENT,
+    CustomerID INT,
+    InterestRate DECIMAL(5,2),
+    DueDate DATE,
+    FOREIGN KEY (CustomerID) REFERENCES Cust(CustomerID)
+);
+
+
+INSERT INTO Cust (Name, Age, Balance) VALUES
+('Alice', 65, 15000),
+('Bob', 45, 8000),
+('Charlie', 70, 12000),
+('David', 30, 5000);
+
+INSERT INTO L (CustomerID, InterestRate, DueDate) VALUES
+(1, 8.5, CURDATE() + INTERVAL 15 DAY),
+(2, 9.0, CURDATE() + INTERVAL 40 DAY),
+(3, 7.5, CURDATE() + INTERVAL 10 DAY),
+(4, 10.0, CURDATE() + INTERVAL 5 DAY);
+
+DELIMITER //
+
+CREATE PROCEDURE ApplySeniorDiscount()
+BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE cid INT;
+
+    DECLARE cur CURSOR FOR 
+        SELECT c.CustomerID
+        FROM Cust c
+        JOIN L l ON c.CustomerID = l.CustomerID
+        WHERE c.Age > 60;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    OPEN cur;
+
+    read_loop: LOOP
+        FETCH cur INTO cid;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        UPDATE L 
+        SET InterestRate = InterestRate - 1.0 
+        WHERE CustomerID = cid;
+    END LOOP;
+
+    CLOSE cur;
+END //
+
+DELIMITER ;
+
+
+CALL ApplySeniorDiscount();
+
+DELIMITER //
+
+CREATE PROCEDURE PromoteVIPCustomers()
+BEGIN
+    -- Create temporary table to hold eligible VIPs
+    CREATE TEMPORARY TABLE IF NOT EXISTS VIPList (
+        CustomerID INT PRIMARY KEY
+    );
+
+    -- Insert eligible customers (balance > 10000)
+    INSERT INTO VIPList (CustomerID)
+    SELECT CustomerID FROM Cust WHERE Balance > 10000;
+
+    -- Safely update using JOIN
+    UPDATE Cust
+    JOIN VIPList ON Cust.CustomerID = VIPList.CustomerID
+    SET Cust.IsVIP = TRUE;
+
+    -- Optional: Drop the temp table (auto-drops after session ends)
+    DROP TEMPORARY TABLE IF EXISTS VIPList;
+END //
+
+DELIMITER ;
+
+
+
+CALL PromoteVIPCustomers();
+
+
+DELIMITER //
+
+CREATE PROCEDURE SendLoanReminders()
+BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE cname VARCHAR(100);
+    DECLARE due DATE;
+
+    DECLARE cur CURSOR FOR
+        SELECT c.Name, l.DueDate
+        FROM Cust c
+        JOIN L l ON c.CustomerID = l.CustomerID
+        WHERE l.DueDate <= CURDATE() + INTERVAL 30 DAY;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    OPEN cur;
+
+    read_loop: LOOP
+        FETCH cur INTO cname, due;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+
+        SELECT CONCAT('Reminder: ', cname, ', your loan is due on ', due) AS Message;
+    END LOOP;
+
+    CLOSE cur;
+END //
+
+DELIMITER ;
+
+
+CALL SendLoanReminders();
